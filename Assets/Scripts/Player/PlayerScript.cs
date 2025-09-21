@@ -1,27 +1,33 @@
 using UnityEditor.Build.Content;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using static UnityEngine.UI.Image;
 
 public class PlayerScript : MonoBehaviour
 {
     [SerializeField] private float maxHealth = 30f;
     [SerializeField] private float currentHealth;
-    [SerializeField] private float moveSpeed = 7f;
+    [SerializeField] private float moveSpeed = 100f;
+    [SerializeField] private float maxVel = 10f;
+    [SerializeField] private float counterForceFactor = 0.5f;
     [SerializeField] private float gravity = -9.81f;
     [SerializeField] private float pushForceFactor = 1f;
+    [SerializeField] private float groundDistance = 0.1f;
+    [SerializeField] private bool isGrounded;
 
-    private CharacterController controller;
     private InputManager inputManager;
     private AudioManager audioManager;
     private Vector2 moveInput;
     private Vector3 velocity;
+    private Rigidbody rb;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        controller = GetComponent<CharacterController>();
         inputManager = InputManager.Instance;
         audioManager = AudioManager.Instance;
+        rb = GetComponent<Rigidbody>();
+        isGrounded = false;
 
         // Init stats
         currentHealth = maxHealth;
@@ -30,15 +36,11 @@ public class PlayerScript : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        moveInput = inputManager.GetPlayerMovement();
-        Vector3 move = new Vector3(moveInput.x, 0, moveInput.y);
-
-        move = transform.TransformDirection(move);
-
-        controller.Move(moveSpeed * Time.deltaTime * move);
+        GroundedCheck();
 
         velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime);
+
+        Movement();
 
         // Schiessen!
         // Einzelschuss
@@ -55,27 +57,46 @@ public class PlayerScript : MonoBehaviour
         }
     }
 
-    // andere Rigidbodys wegkicken
-    void OnControllerColliderHit(ControllerColliderHit hit)
+    public void GroundedCheck()
     {
-        Rigidbody rb = hit.collider.attachedRigidbody;
-
-        if (rb != null && !rb.isKinematic)
-        {
-            Vector3 pushDir = new Vector3(hit.moveDirection.x, 0, hit.moveDirection.z);
-            float pushForce = pushForceFactor * 1/rb.mass;
-
-            rb.AddForce(pushDir * pushForce, ForceMode.Impulse);
-        }
+        isGrounded = Physics.Raycast(rb.position + new Vector3(0, 0.05f, 0), Vector3.down, out RaycastHit hit, groundDistance);
+        Debug.DrawLine(rb.position, hit.point);
     }
 
-    // Spieler bekommt Schaden (durch Zombie in der Regel)
+    public void Movement()
+    {
+        if (!isGrounded) { return; }
+
+        moveInput = inputManager.GetPlayerMovement();
+        Vector3 move = new Vector3(moveInput.x, 0, moveInput.y);
+
+        Vector3 localVelocity = transform.InverseTransformDirection(rb.linearVelocity);
+
+        Debug.Log(isGrounded);
+
+        // CounterMovement
+        if (moveInput.x == 0)
+        {
+            rb.AddForce(moveSpeed * Time.deltaTime * transform.right * -localVelocity.x * counterForceFactor);
+        }
+        if (moveInput.y == 0)
+        {
+            rb.AddForce(moveSpeed * Time.deltaTime * transform.forward * -localVelocity.z * counterForceFactor);
+        }
+
+        // maxSpeed check
+        if (Mathf.Abs(localVelocity.x) > maxVel) { move.x = 0; }
+        if (Mathf.Abs(localVelocity.z) > maxVel) { move.z = 0; }
+
+        move = transform.TransformDirection(move); //
+        rb.AddForce(move * moveSpeed * Time.deltaTime);
+    }
+
     public void TakeDamage(float damage) 
     { 
         currentHealth -= damage;
         audioManager.PlayerDamage();
 
-        // Bestatter schaut drüber
         if (currentHealth <= 0)
         {
             //audioManager.PlayerDeath()
